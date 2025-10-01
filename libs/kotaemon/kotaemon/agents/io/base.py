@@ -31,6 +31,10 @@ class AgentType(Enum):
     react = "react"
     rewoo = "rewoo"
     vanilla = "vanilla"
+    socratic = "socratic"
+    socratic_evaluator = "socratic_evaluator"
+    socratic_reflection = "socratic_reflection"
+    socratic_orchestrator = "socratic_orchestrator"
 
 
 class BaseScratchPad:

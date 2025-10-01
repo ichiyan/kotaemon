@@ -4,6 +4,7 @@ from .langchain_based import LangchainAgent
 from .react.agent import ReactAgent
 from .rewoo.agent import RewooAgent
 from .tools import BaseTool, ComponentTool, GoogleSearchTool, LLMTool, WikipediaTool
+from .socratic import SocraticQuestionerAgent, SocraticEvaluatorAgent, SocraticReflectionAgent, SocraticOrchestratorAgent
 
 __all__ = [
     # agent
@@ -11,6 +12,10 @@ __all__ = [
     "ReactAgent",
     "RewooAgent",
     "LangchainAgent",
+    "SocraticQuestionerAgent",
+    "SocraticEvaluatorAgent", 
+    "SocraticReflectionAgent", 
+    "SocraticOrchestratorAgent",
     # tool
     "BaseTool",
     "ComponentTool",
