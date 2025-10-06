@@ -21,7 +21,7 @@ Analysis of Student's Response:
 {student_analysis}
 
 Instructions:
-1. Ask 1-2 thoughtful questions that:
+1. Ask one thoughtful question that:
    - Build on what the student already understands
    - Address gaps or misconceptions identified in their response
    - Guide toward the next logical step without revealing the answer
@@ -48,7 +48,7 @@ Instructions:
    - "partial": Challenge their partial understanding; probe for completeness
    - "strong": Ask deeper questions about implications, connections, or edge cases
 
-Your Socratic Questions:"""
+Your Socratic Question:"""
 )
 
 hint_generation_prompt = PromptTemplate(

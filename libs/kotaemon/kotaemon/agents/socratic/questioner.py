@@ -10,7 +10,7 @@ class SocraticQuestionerAgent(BaseAgent):
     """
 
     name: str = "SocraticQuestionerAgent"
-    agent_type: AgentType = AgentType.socratic
+    agent_type: AgentType = AgentType.socratic_questioner
     description: str = (
         "Generates Socratic questions to guide student learning"
     )
@@ -50,7 +50,7 @@ class SocraticQuestionerAgent(BaseAgent):
         for entry in recent:
             role = entry.get("role", "unknown")
             content = entry.get("content", "")
-            formatted.append(f"{role.capitalize()}: {content}")
+            formatted.append(f"{role}: {content}")
         
         return "\n".join(formatted)
 
