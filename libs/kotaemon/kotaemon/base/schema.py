@@ -33,12 +33,13 @@ class Document(BaseDocument):
             - chat: show in chat message
             - info: show in information panel
             - index: show in index panel
-            - debug: show in debug panel
+            - debug: show in debug panel  
+            - interrupt: show interrupt in chat message
     """
 
     content: Any = None
     source: Optional[str] = None
-    channel: Optional[Literal["chat", "info", "index", "debug", "plot"]] = None
+    channel: Optional[Literal["chat", "info", "index", "debug", "plot", "interrupt"]] = None
 
     def __init__(self, content: Optional[Any] = None, *args, **kwargs):
         if content is None:

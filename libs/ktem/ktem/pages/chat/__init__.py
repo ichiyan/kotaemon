@@ -200,6 +200,7 @@ function(_, __) {
 class ChatPage(BasePage):
     def __init__(self, app):
         self._app = app
+        self._pipeline_cache = {}
         self._indices_input = []
 
         self.on_building_ui()
@@ -1288,21 +1289,49 @@ class ChatPage(BasePage):
 
         queue: asyncio.Queue[Optional[dict]] = asyncio.Queue()
 
-        # construct the pipeline
-        pipeline, reasoning_state = self.create_pipeline(
-            settings,
-            reasoning_type,
-            llm_type,
-            use_mind_map,
-            use_citation,
-            language,
-            chat_state,
-            command_state,
-            user_id,
-            *selecteds,
-        )
+        # Use instance variable for cache, not chat_state
+        pipeline_cache_key = f"pipeline_{conversation_id}"
+        
+        if pipeline_cache_key in self._pipeline_cache:
+            print("DEBUG: Reusing existing pipeline from cache")
+            pipeline = self._pipeline_cache[pipeline_cache_key]
+            reasoning_state = {"app": chat_state.get("app", {}), "pipeline": chat_state.get("Socratic", {})}
+        else:
+            print("DEBUG: Creating new pipeline")
+            pipeline, reasoning_state = self.create_pipeline(
+                settings,
+                reasoning_type,
+                llm_type,
+                use_mind_map,
+                use_citation,
+                language,
+                chat_state,
+                command_state,
+                user_id,
+                *selecteds,
+            )
+            # Cache in instance variable, NOT in chat_state
+            self._pipeline_cache[pipeline_cache_key] = pipeline
+            chat_state["reasoning_state"] = reasoning_state
+    
         print("Reasoning state", reasoning_state)
         pipeline.set_output_queue(queue)
+
+        # construct the pipeline
+        # pipeline, reasoning_state = self.create_pipeline(
+        #     settings,
+        #     reasoning_type,
+        #     llm_type,
+        #     use_mind_map,
+        #     use_citation,
+        #     language,
+        #     chat_state,
+        #     command_state,
+        #     user_id,
+        #     *selecteds,
+        # )
+        # print("Reasoning state", reasoning_state)
+        # pipeline.set_output_queue(queue)
 
         text, refs, plot, plot_gr = "", "", None, gr.update(visible=False)
         msg_placeholder = getattr(
@@ -1317,8 +1346,15 @@ class ChatPage(BasePage):
             chat_state,
         )
 
+        # Check if we're resuming from an interrupt
+        pipeline_id = pipeline.get_info()["id"]
+        pipeline_state = chat_state.get(pipeline_id, {})
+        is_resuming = pipeline_state.get("waiting_for_input", False)
+        
+        stream_kwargs = {"pipeline_state": pipeline_state}
+
         try:
-            for response in pipeline.stream(chat_input, conversation_id, chat_history):
+            for response in pipeline.stream(chat_input, conversation_id, chat_history, **stream_kwargs):
 
                 if not isinstance(response, Document):
                     continue
@@ -1342,7 +1378,17 @@ class ChatPage(BasePage):
                     plot = response.content
                     plot_gr = self._json_to_plot(plot)
 
-                chat_state[pipeline.get_info()["id"]] = reasoning_state["pipeline"]
+                if response.channel == "interrupt":
+                    interrupt_data = response.content
+                    # Update state to indicate waiting for input
+                    pipeline_state["waiting_for_input"] = interrupt_data.get("waiting_for_input", False)
+                    pipeline_state["conv_id"] = conversation_id
+                    
+                    # Add visual indicator that we're waiting
+                    text += "\n\n**[Please provide your response]**"
+                    
+                chat_state[pipeline_id] = pipeline_state
+                # chat_state[pipeline.get_info()["id"]] = reasoning_state["pipeline"]
 
                 yield (
                     chat_history + [(chat_input, text or msg_placeholder)],
@@ -1351,6 +1397,14 @@ class ChatPage(BasePage):
                     plot,
                     chat_state,
                 )
+
+                # Clear interrupt state if conversation completed
+            if "waiting_for_input" in pipeline_state:
+                if not text.endswith("**[Please provide your response]**"):
+                    pipeline_state["waiting_for_input"] = False
+                    chat_state[pipeline_id] = pipeline_state
+
+
         except ValueError as e:
             print(e)
 
