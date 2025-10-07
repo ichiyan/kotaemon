@@ -1,7 +1,7 @@
 from typing import Optional, Union, List, Dict
 from kotaemon.agents.base import BaseAgent, AgentOutput, AgentType
 from kotaemon.llms import BaseLLM, ChatLLM, PromptTemplate
-from .questioner_prompt import socratic_prompt, hint_generation_prompt, synthesis_prompt
+from .questioner_prompt import socratic_prompt, initial_socratic_prompt
 
 
 class SocraticQuestionerAgent(BaseAgent):
@@ -22,6 +22,7 @@ class SocraticQuestionerAgent(BaseAgent):
         self,
         llm: Optional[BaseLLM] = None,
         prompt_template: Optional[Union[PromptTemplate, str]] = None,
+        initial_prompt_template: Optional[Union[PromptTemplate, str]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -29,6 +30,15 @@ class SocraticQuestionerAgent(BaseAgent):
        
 
         # Configure prompts
+
+        if isinstance(initial_prompt_template, str):
+            self.initial_prompt_template = PromptTemplate(template=initial_prompt_template)
+        elif isinstance(initial_prompt_template, PromptTemplate):
+            self.initial_prompt_template = initial_prompt_template
+        else:
+            self.initial_prompt_template = initial_socratic_prompt
+
+
         if isinstance(prompt_template, str):
             self.prompt_template = PromptTemplate(template=prompt_template)
         elif isinstance(prompt_template, PromptTemplate):
@@ -36,9 +46,7 @@ class SocraticQuestionerAgent(BaseAgent):
         else:
             self.prompt_template = socratic_prompt
 
-        # self.hint_prompt = hint_generation_prompt
-        # self.synthesis_prompt = synthesis_prompt
-
+       
     def _format_history(self, history: list[dict[str, str]]) -> str:
         """Format conversation history for prompt"""
         if not history:
@@ -65,15 +73,47 @@ class SocraticQuestionerAgent(BaseAgent):
             AgentOutput with questions and metadata
         """
         try:
-            # Extract inputs
+           
             context = instruction.get("context", "")
             history = instruction.get("history", [])
-          
+            eval_decision = instruction.get("eval_decision", "continue")
+            evaluation = instruction.get("evaluation", {})
+            turn_number = instruction.get("turn_number", 0)
+            max_turns = instruction.get("max_turns", 5)
 
-            prompt = self.prompt_template.populate(
-                context=context,
-                history=self._format_history(history)
-            )
+            if turn_number == 0:
+                prompt = self.initial_prompt_template.populate(
+                    context=context,
+                    history=self._format_history(history)
+                )
+            else:
+                
+                evaluation_assessment = ""
+
+                if eval_decision:
+                    evaluation_assessment += f"Decision: {eval_decision}\n"
+
+                if evaluation:
+                    if evaluation.get("understanding_level"):
+                        evaluation_assessment += f"Understanding Level: {evaluation.get("understanding_level")}\n"
+                    
+                    if evaluation.get("reasoning"):
+                        evaluation_assessment += f"Evaluator's Reasoning: {evaluation.get("reasoning")}\n"
+                    
+                    if evaluation.get("key_points_understood"):
+                        evaluation_assessment += f"Key Points Understood: {evaluation.get("key_points_understood")}\n"
+                    
+                    if evaluation.get("gaps_identified"):
+                        evaluation_assessment += f"Gaps Identified: {evaluation.get("gaps_identified")}"
+
+    
+                prompt = self.prompt_template.populate(
+                    context=context,
+                    history=self._format_history(history), 
+                    evaluation_assessment=evaluation_assessment, 
+                    turn_number=turn_number, 
+                    max_turns=max_turns
+                )
 
             # Generate questions
             result = self.llm(prompt)

@@ -1317,22 +1317,6 @@ class ChatPage(BasePage):
         print("Reasoning state", reasoning_state)
         pipeline.set_output_queue(queue)
 
-        # construct the pipeline
-        # pipeline, reasoning_state = self.create_pipeline(
-        #     settings,
-        #     reasoning_type,
-        #     llm_type,
-        #     use_mind_map,
-        #     use_citation,
-        #     language,
-        #     chat_state,
-        #     command_state,
-        #     user_id,
-        #     *selecteds,
-        # )
-        # print("Reasoning state", reasoning_state)
-        # pipeline.set_output_queue(queue)
-
         text, refs, plot, plot_gr = "", "", None, gr.update(visible=False)
         msg_placeholder = getattr(
             flowsettings, "KH_CHAT_MSG_PLACEHOLDER", "Thinking ..."
@@ -1385,7 +1369,7 @@ class ChatPage(BasePage):
                     pipeline_state["conv_id"] = conversation_id
                     
                     # Add visual indicator that we're waiting
-                    text += "\n\n**[Please provide your response]**"
+                    text += "\n\n**[Please provide your response.]**"
                     
                 chat_state[pipeline_id] = pipeline_state
                 # chat_state[pipeline.get_info()["id"]] = reasoning_state["pipeline"]

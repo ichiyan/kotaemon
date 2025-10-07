@@ -33,7 +33,9 @@ class SocraticState(TypedDict):
     user_response: str
     history: list[dict[str, str]]
     turn_number: int 
+    max_turns: int
     latest_eval: dict[str, Any]
+    latest_eval_decision: str
     reflection: str
 
 
@@ -71,7 +73,11 @@ class SocraticPipeline(BaseReasoning):
             if state["turn_number"] > self.max_turns:
                 return "reflect"
             
-            next_action = state.get("latest_eval", "continue")
+            next_action = state.get("latest_eval_decision", "continue")
+
+            if next_action not in ["continue", "hint", "reflect"]:
+                next_action = "continue"
+
             print(f"NEXT ACTION: {next_action}")
             return next_action
 
@@ -98,7 +104,11 @@ class SocraticPipeline(BaseReasoning):
         def generate_socratic_query(state: SocraticState) -> SocraticState:
             query = self.questioner_agent({
                 "context": state["context"], 
-                "history": state["history"]
+                "history": state["history"], 
+                "decision": state["decision"],
+                "evaluation": state["latest_eval"], 
+                "turn_number": state["turn_number"], 
+                "max_turns": state["max_turns"]
             })
 
             state ["socratic_query"] = query.text
@@ -108,13 +118,12 @@ class SocraticPipeline(BaseReasoning):
             return state 
 
         
-        def get_user_response(state: SocraticState):
+        def get_user_response(state: SocraticState) -> SocraticState:
             user_response = interrupt(value="")
             state["user_response"] = user_response
             state["history"].append({"user": user_response})
 
             print(f"GET_USER_RESPONSE: {state}")
-
 
             return state
                 
@@ -122,10 +131,15 @@ class SocraticPipeline(BaseReasoning):
 
         def evaluate_user_response(state: SocraticState) -> SocraticState:
             print("EVALUATING")
-            state["latest_eval"] = self.evaluator_agent({
+            result = self.evaluator_agent({
                 "context": state["context"], 
-                "history": state["history"]
-            }).text
+                "history": state["history"], 
+                "turn_number": state["turn_number"], 
+                "max_turns": state["max_turns"]
+            })
+
+            state["latest_eval_decision"] = result.text
+            state["latest_eval"] = result.metadata
 
             return state
         
@@ -205,12 +219,15 @@ class SocraticPipeline(BaseReasoning):
                         user_response="", 
                         history=[], 
                         turn_number=0, 
+                        max_turns=self.max_turns,
                         latest_eval={},
                         reflection=""
                     )
                     
                     for chunk in self.graph.stream(initial_state, config, stream_mode="updates"):
                         yield from self._process_chunk(chunk)
+
+
             except Exception as e:
                 print(f"DEBUG: Error checking state, starting fresh: {e}")
                 initial_state = SocraticState(
@@ -247,160 +264,11 @@ class SocraticPipeline(BaseReasoning):
                     channel="interrupt",
                     content={"waiting_for_input": True}
                 )
-
-    # def _save_checkpoint(self, config, state, metadata=None):
-    #     checkpoint_id = (
-    #         config.get("configurable", {}).get("thread_id")
-    #         or state.get("conv_id")
-    #         or str(uuid.uuid4())
-    #     )
-
-    #     checkpoint = {
-    #         "id": checkpoint_id,        
-    #         "channel_values": state,   
-    #         "channel_versions": {}, 
-    #         "next": None,               
-    #     }
-
-    #     self.checkpointer.put(
-    #         config,
-    #         checkpoint,
-    #         metadata or {},
-    #         new_versions={},
-    #     )
-    
-
-    # def _save_checkpoint(self, config, state, metadata=None):
-    #     """Ensure checkpoint is saved in LangGraph's expected structure."""
-    #     from langgraph.checkpoint.base import CheckpointTuple
-
-    #     checkpoint_data = CheckpointTuple(
-    #         # the actual pipeline state
-    #         channel_values=state,
-    #         # optional: version tracking, can be empty
-    #         channel_versions={},
-    #         # optional: metadata for LangGraph to use internally
-    #         metadata=metadata or {},
-    #         # optional: the next checkpoint link (not required)
-    #         next=None,
-    #     )
-
-    #     self.checkpointer.put(config, checkpoint_data)
-
-    # def stream(self, message, conv_id: str, history: list, **kwargs):
-    #     if self.graph is None:
-    #         raise RuntimeError("Pipeline not properly initialized. Use get_pipeline() classmethod.")
-
-    #     config = {"configurable": {"thread_id": conv_id, "checkpoint_ns": "socratic"}}
-
-    #     initial_state = SocraticState(
-    #                         conv_id=conv_id,
-    #                         context="", 
-    #                         user_query=message, 
-    #                         socratic_query="",
-    #                         user_response="", 
-    #                         history=[], 
-    #                         turn_number=0, 
-    #                         latest_eval="",
-    #                         reflection=""
-    #                     ) 
-        
-    #     for chunk in self.graph.stream(initial_state, config):
-    #         for node_id, value in chunk.items():
-    #             if node_id == "question":
-    #                 yield Document(
-    #                     channel="chat",
-    #                     content=value["socratic_query"],
-    #                 )
-    #             elif node_id == "reflect":
-    #                 yield Document(
-    #                     channel="chat",
-    #                     content=value["reflection"],
-    #                 )
-    #             elif node_id == "__interrupt__":
-    #                 # yield Document(
-    #                 #     channel="interrupt",
-    #                 #     content={"waiting_for_input": True}
-    #                 # ) 
-    #                 self.graph.invoke(Command(resume=message), config) 
-
-                    
-
-    # def stream(self, message, conv_id: str, history: list, **kwargs):
-    #     if self.graph is None:
-    #         raise RuntimeError("Pipeline not properly initialized. Use get_pipeline() classmethod.")
-
-    #     # Check if resuming from interrupt
-    #     pipeline_state = kwargs.get("pipeline_state", {})
-    #     is_interrupted = pipeline_state.get("waiting_for_input", False)
-        
-    #     config = {"configurable": {"thread_id": conv_id, "checkpoint_ns": "socratic"}}
-        
-    #     if is_interrupted:
-    #         # Resume with user's response
-    #         # saved_state = self.checkpointer.get(config)
-    #         # if not saved_state:
-    #         #     raise RuntimeError("No saved SocraticState found for resume.")
-
-    #         # # Update state with user's reply
-    #         # saved_state["user_response"] = message
-    #         # saved_state["history"].append({"user": message})
-    #         # saved_state["turn_number"] += 1
-
-    #         output_stream = self.graph.stream(
-    #             Command(resume=message),
-    #             config=config,
-    #             stream_mode="updates"
-    #         )
-
-    #     else:
-
-    #         initial_state = SocraticState(
-    #             conv_id=conv_id,
-    #             context="", 
-    #             user_query=message, 
-    #             socratic_query="",
-    #             user_response="", 
-    #             history=[], 
-    #             turn_number=0, 
-    #             latest_eval="",
-    #             reflection=""
-    #         )
-
-    #         # self._save_checkpoint(config, dict(initial_state))
-
-    #         output_stream = Generator(self.graph.stream(
-    #             initial_state,
-    #             config=config, 
-    #             stream_mode="updates"
-    #         ))
+            elif node_id == "evaluate":
+                print(f"[Evaluator Decision] → {value['latest_eval_decision']}")
+                print(f"[Evaluation Metadata]: {value["latest_eval"]}")
 
 
-    #     for event in output_stream:
-    #         if "question" in event:
-    #             yield Document(
-    #                 channel="chat",
-    #                 content=event["question"]["socratic_query"],
-    #             )
-    #         elif "reflect" in event:
-    #             yield Document(
-    #                 channel="chat",
-    #                 content=event["reflect"]["reflection"],
-    #             )
-    #         elif "__interrupt__" in event:
-    #             yield Document(
-    #                 channel="interrupt",
-    #                 content={"waiting_for_input": True}
-    #             )
-        
-        # Ensure interrupt flag cleared when done
-        # saved_state = self.checkpointer.get(config)
-        # if saved_state and not saved_state.get("waiting_for_input", False):
-        #     saved_state["waiting_for_input"] = False
-        #     # self.checkpointer.put(config, saved_state, metadata={}, new_versions={})
-        #     self._save_checkpoint(config, saved_state)
-        
-    
     
     @classmethod
     def get_pipeline(
