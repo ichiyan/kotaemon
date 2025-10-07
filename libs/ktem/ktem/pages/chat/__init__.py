@@ -1263,7 +1263,7 @@ class ChatPage(BasePage):
         pipeline = reasoning_cls.get_pipeline(settings, reasoning_state, retrievers)
 
         return pipeline, reasoning_state
-
+    
     def chat_fn(
         self,
         conversation_id,
@@ -1282,20 +1282,21 @@ class ChatPage(BasePage):
         """Chat function"""
         chat_input, chat_output = chat_history[-1]
         chat_history = chat_history[:-1]
-
-        # if chat_input is empty, assume regen mode
+        
         if chat_output:
             chat_state["app"]["regen"] = True
-
+        
         queue: asyncio.Queue[Optional[dict]] = asyncio.Queue()
-
-        # Use instance variable for cache, not chat_state
         pipeline_cache_key = f"pipeline_{conversation_id}"
         
         if pipeline_cache_key in self._pipeline_cache:
             print("DEBUG: Reusing existing pipeline from cache")
             pipeline = self._pipeline_cache[pipeline_cache_key]
-            reasoning_state = {"app": chat_state.get("app", {}), "pipeline": chat_state.get("Socratic", {})}
+            pipeline_id = pipeline.get_info()["id"]
+            reasoning_state = {
+                "app": chat_state.get("app", {}), 
+                "pipeline": chat_state.get(pipeline_id, {})
+            }
         else:
             print("DEBUG: Creating new pipeline")
             pipeline, reasoning_state = self.create_pipeline(
@@ -1310,18 +1311,15 @@ class ChatPage(BasePage):
                 user_id,
                 *selecteds,
             )
-            # Cache in instance variable, NOT in chat_state
             self._pipeline_cache[pipeline_cache_key] = pipeline
             chat_state["reasoning_state"] = reasoning_state
-    
+        
         print("Reasoning state", reasoning_state)
         pipeline.set_output_queue(queue)
-
+        
         text, refs, plot, plot_gr = "", "", None, gr.update(visible=False)
-        msg_placeholder = getattr(
-            flowsettings, "KH_CHAT_MSG_PLACEHOLDER", "Thinking ..."
-        )
-        print(msg_placeholder)
+        msg_placeholder = getattr(flowsettings, "KH_CHAT_MSG_PLACEHOLDER", "Thinking ...")
+        
         yield (
             chat_history + [(chat_input, text or msg_placeholder)],
             refs,
@@ -1329,51 +1327,59 @@ class ChatPage(BasePage):
             plot,
             chat_state,
         )
-
-        # Check if we're resuming from an interrupt
+        
+        # Get pipeline state
         pipeline_id = pipeline.get_info()["id"]
         pipeline_state = chat_state.get(pipeline_id, {})
         is_resuming = pipeline_state.get("waiting_for_input", False)
         
-        stream_kwargs = {"pipeline_state": pipeline_state}
-
+        print(f"DEBUG chat_fn: is_resuming={is_resuming}, pipeline_id={pipeline_id}")
+        print(f"DEBUG chat_fn: pipeline_state={pipeline_state}")
+        
+        # Clear the flag BEFORE streaming
+        if is_resuming:
+            pipeline_state["waiting_for_input"] = False
+            chat_state[pipeline_id] = pipeline_state
+            print(f"DEBUG: Cleared waiting_for_input before resume")
+        
+        stream_kwargs = {}
+        
+        # Track if we hit a NEW interrupt during this stream
+        hit_interrupt = False
+        
         try:
             for response in pipeline.stream(chat_input, conversation_id, chat_history, **stream_kwargs):
-
                 if not isinstance(response, Document):
                     continue
-
                 if response.channel is None:
                     continue
-
+                    
                 if response.channel == "chat":
                     if response.content is None:
                         text = ""
                     else:
                         text += response.content
-
+                        
                 if response.channel == "info":
                     if response.content is None:
                         refs = ""
                     else:
                         refs += response.content
-
+                        
                 if response.channel == "plot":
                     plot = response.content
                     plot_gr = self._json_to_plot(plot)
-
+                    
                 if response.channel == "interrupt":
                     interrupt_data = response.content
-                    # Update state to indicate waiting for input
                     pipeline_state["waiting_for_input"] = interrupt_data.get("waiting_for_input", False)
                     pipeline_state["conv_id"] = conversation_id
-                    
-                    # Add visual indicator that we're waiting
                     text += "\n\n**[Please provide your response.]**"
+                    hit_interrupt = True
+                    print(f"DEBUG: Hit interrupt, set waiting_for_input=True")
                     
                 chat_state[pipeline_id] = pipeline_state
-                # chat_state[pipeline.get_info()["id"]] = reasoning_state["pipeline"]
-
+                
                 yield (
                     chat_history + [(chat_input, text or msg_placeholder)],
                     refs,
@@ -1381,21 +1387,20 @@ class ChatPage(BasePage):
                     plot,
                     chat_state,
                 )
-
-                # Clear interrupt state if conversation completed
-            if "waiting_for_input" in pipeline_state:
-                if not text.endswith("**[Please provide your response]**"):
-                    pipeline_state["waiting_for_input"] = False
-                    chat_state[pipeline_id] = pipeline_state
-
-
+            
+            # Only clear if we DIDN'T hit an interrupt (meaning conversation ended naturally)
+            if not hit_interrupt and pipeline_state.get("waiting_for_input", False):
+                pipeline_state["waiting_for_input"] = False
+                chat_state[pipeline_id] = pipeline_state
+                print(f"DEBUG: Conversation ended naturally, cleared waiting_for_input")
+                
         except ValueError as e:
-            print(e)
-
+            print(f"ERROR in chat_fn: {e}")
+            import traceback
+            traceback.print_exc()
+            
         if not text:
-            empty_msg = getattr(
-                flowsettings, "KH_CHAT_EMPTY_MSG_PLACEHOLDER", "(Sorry, I don't know)"
-            )
+            empty_msg = getattr(flowsettings, "KH_CHAT_EMPTY_MSG_PLACEHOLDER", "(Sorry, I don't know)")
             print(f"Generate nothing: {empty_msg}")
             yield (
                 chat_history + [(chat_input, text or empty_msg)],
@@ -1404,6 +1409,8 @@ class ChatPage(BasePage):
                 plot,
                 chat_state,
             )
+
+
 
     def check_and_suggest_name_conv(self, chat_history):
         suggest_pipeline = SuggestConvNamePipeline()

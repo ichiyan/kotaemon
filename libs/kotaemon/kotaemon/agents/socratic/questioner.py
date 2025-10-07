@@ -74,17 +74,18 @@ class SocraticQuestionerAgent(BaseAgent):
         """
         try:
            
+            user_query = instruction.get("user_query", "")
             context = instruction.get("context", "")
             history = instruction.get("history", [])
-            eval_decision = instruction.get("eval_decision", "continue")
-            evaluation = instruction.get("evaluation", {})
+            eval_decision = instruction.get("latest_eval_decision", "continue")
+            evaluation = instruction.get("latest_eval", {})
             turn_number = instruction.get("turn_number", 0)
             max_turns = instruction.get("max_turns", 5)
 
             if turn_number == 0:
                 prompt = self.initial_prompt_template.populate(
-                    context=context,
-                    history=self._format_history(history)
+                    user_query=user_query,
+                    context=context
                 )
             else:
                 
@@ -95,16 +96,16 @@ class SocraticQuestionerAgent(BaseAgent):
 
                 if evaluation:
                     if evaluation.get("understanding_level"):
-                        evaluation_assessment += f"Understanding Level: {evaluation.get("understanding_level")}\n"
+                        evaluation_assessment += f"Understanding Level: {evaluation.get('understanding_level')}\n"
                     
                     if evaluation.get("reasoning"):
-                        evaluation_assessment += f"Evaluator's Reasoning: {evaluation.get("reasoning")}\n"
+                        evaluation_assessment += f"Evaluator's Reasoning: {evaluation.get('reasoning')}\n"
                     
                     if evaluation.get("key_points_understood"):
-                        evaluation_assessment += f"Key Points Understood: {evaluation.get("key_points_understood")}\n"
+                        evaluation_assessment += f"Key Points Understood: {evaluation.get('key_points_understood')}\n"
                     
                     if evaluation.get("gaps_identified"):
-                        evaluation_assessment += f"Gaps Identified: {evaluation.get("gaps_identified")}"
+                        evaluation_assessment += f"Gaps Identified: {evaluation.get('gaps_identified')}"
 
     
                 prompt = self.prompt_template.populate(

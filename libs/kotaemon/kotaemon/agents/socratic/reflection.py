@@ -89,14 +89,36 @@ class SocraticReflectionAgent(BaseAgent):
             AgentOutput with comprehensive reflection
         """
         try:
-            # Extract inputs
-            history = instruction.get("history", [])
+            user_query = instruction.get("user_query", "")
             context = instruction.get("context", "")
+            history = instruction.get("history", [])
+            eval_decision = instruction.get("latest_eval_decision", "continue")
+            evaluation = instruction.get("latest_eval", {})
+
+            evaluation_assessment = ""
+
+            if eval_decision:
+                evaluation_assessment += f"Decision: {eval_decision}\n"
+
+            if evaluation:
+                if evaluation.get("understanding_level"):
+                    evaluation_assessment += f"Understanding Level: {evaluation.get('understanding_level')}\n"
+                
+                if evaluation.get("reasoning"):
+                    evaluation_assessment += f"Evaluator's Reasoning: {evaluation.get('reasoning')}\n"
+                
+                if evaluation.get("key_points_understood"):
+                    evaluation_assessment += f"Key Points Understood: {evaluation.get('key_points_understood')}\n"
+                
+                if evaluation.get("gaps_identified"):
+                    evaluation_assessment += f"Gaps Identified: {evaluation.get('gaps_identified')}"
           
+
             # Generate main reflection
             prompt = self.prompt_template.populate(
                 context=context,
-                history=self._format_history(history)
+                history=self._format_history(history),
+                evaluation_assessment=evaluation_assessment
             )
             
             result = self.llm(prompt)
