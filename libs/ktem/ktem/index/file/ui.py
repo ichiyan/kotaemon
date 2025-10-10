@@ -1120,7 +1120,7 @@ class FileIndexPage(BasePage):
             yield "", ""
             return
 
-        gr.Info(f"Start indexing {len(files)} files...")
+        gr.Info(f"Start indexing {len(files)} file(s)...")
 
         # get the pipeline
         indexing_pipeline = self._index.get_indexing_pipeline(settings, user_id)
@@ -1153,10 +1153,10 @@ class FileIndexPage(BasePage):
 
         n_successes = len([_ for _ in results if _])
         if n_successes:
-            gr.Info(f"Successfully index {n_successes} files")
+            gr.Info(f"Successfully index {n_successes} file(s)")
         n_errors = len([_ for _ in errors if _])
         if n_errors:
-            gr.Warning(f"Have errors for {n_errors} files")
+            gr.Warning(f"Have errors for {n_errors} file(s)")
 
         return results
 

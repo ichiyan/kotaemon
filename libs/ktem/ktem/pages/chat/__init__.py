@@ -588,7 +588,7 @@ class ChatPage(BasePage):
                 inputs=None,
                 js=chat_input_focus_js,
             )
-
+        
         if not KH_DEMO_MODE:
             self.chat_control.btn_new.click(
                 self.chat_control.new_conv,
@@ -625,6 +625,8 @@ class ChatPage(BasePage):
                 inputs=None,
                 js=chat_input_focus_js,
             )
+
+            
 
             self.chat_control.btn_del.click(
                 lambda id: self.toggle_delete(id),
@@ -1263,7 +1265,8 @@ class ChatPage(BasePage):
         pipeline = reasoning_cls.get_pipeline(settings, reasoning_state, retrievers)
 
         return pipeline, reasoning_state
-    
+
+
     def chat_fn(
         self,
         conversation_id,
@@ -1283,13 +1286,53 @@ class ChatPage(BasePage):
         chat_input, chat_output = chat_history[-1]
         chat_history = chat_history[:-1]
         
+        
+        
         if chat_output:
             chat_state["app"]["regen"] = True
         
         queue: asyncio.Queue[Optional[dict]] = asyncio.Queue()
+        
+        # Determine reasoning mode
+        reasoning_mode = (
+            settings["reasoning.use"]
+            if reasoning_type in (DEFAULT_SETTING, None)
+            else reasoning_type
+        )
+        
         pipeline_cache_key = f"pipeline_{conversation_id}"
         
-        if pipeline_cache_key in self._pipeline_cache:
+        # Check if document selection has changed (invalidate cache if needed)
+        current_doc_selection = str(selecteds)
+        stored_doc_selection = chat_state.get("doc_selection_key", None)
+        
+        if stored_doc_selection != current_doc_selection:
+            print(f"DEBUG: Document selection changed")
+            print(f"  Old: {stored_doc_selection}")
+            print(f"  New: {current_doc_selection}")
+            # Clear the cached pipeline
+            if pipeline_cache_key in self._pipeline_cache:
+                print(f"DEBUG: Invalidating cached pipeline")
+                del self._pipeline_cache[pipeline_cache_key]
+            # Update stored selection
+            chat_state["doc_selection_key"] = current_doc_selection
+        
+        # Check if we're resuming from an interrupt (before creating/getting pipeline)
+        # Use reasoning_mode as temporary key since we don't have pipeline yet
+        temp_pipeline_id = reasoning_mode
+        temp_pipeline_state = chat_state.get(temp_pipeline_id, {})
+        is_resuming = temp_pipeline_state.get("waiting_for_input", False)
+        
+        # Get or create pipeline
+        if is_resuming and pipeline_cache_key in self._pipeline_cache:
+            print("DEBUG: Reusing existing pipeline from cache (resuming)")
+            pipeline = self._pipeline_cache[pipeline_cache_key]
+            pipeline_id = pipeline.get_info()["id"]
+            reasoning_state = {
+                "app": chat_state.get("app", {}), 
+                "pipeline": chat_state.get(pipeline_id, {})
+            }
+        elif pipeline_cache_key in self._pipeline_cache:
             print("DEBUG: Reusing existing pipeline from cache")
             pipeline = self._pipeline_cache[pipeline_cache_key]
             pipeline_id = pipeline.get_info()["id"]
@@ -1409,8 +1452,6 @@ class ChatPage(BasePage):
                 plot,
                 chat_state,
             )
-
-
 
     def check_and_suggest_name_conv(self, chat_history):
         suggest_pipeline = SuggestConvNamePipeline()
